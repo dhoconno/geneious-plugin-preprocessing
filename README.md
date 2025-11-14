@@ -1,338 +1,313 @@
-# Fastp/Fastplong Plugin for Geneious Prime
+# Fastp Plugin for Geneious Prime
 
-A Geneious Prime plugin that integrates fastp and fastplong for quality control and preprocessing of high-throughput sequencing data.
+A comprehensive FASTQ preprocessing plugin for Geneious Prime that integrates quality control and read optimization tools into your sequence analysis workflow.
 
-## Project Structure
+## Overview
 
-```
-geneious-plugin-fastp/
-├── README.md                    # This file
-├── plugin.properties            # Plugin metadata
-├── build.xml                    # Ant build configuration
-├── build/                       # Build output directory (created by Ant)
-├── classes/                     # Compiled classes directory (created by Ant)
-└── src/                         # Java source files
-    └── com/
-        └── biomatters/
-            └── plugins/
-                └── fastp/
-                    ├── FastpPlugin.java           # Main plugin class
-                    ├── FastpOperation.java        # Main operation implementation
-                    ├── FastpOptions.java          # Options panel for user configuration
-                    ├── FastpBinaryManager.java    # Binary detection and management
-                    └── FastpExecutor.java         # Command execution and process handling
-```
+The Fastp Plugin provides seamless integration of industry-standard preprocessing tools directly within Geneious Prime. It automatically handles both short and long reads, preserves quality scores throughout the workflow, and optimizes read files for better compression and downstream processing.
 
-## Java Classes Overview
+**Current Version:** 1.1.0
 
-### 1. FastpPlugin.java
-**Purpose:** Main plugin entry point that Geneious loads.
+## Features
 
-**Responsibilities:**
-- Extends GeneiousPlugin base class
-- Provides plugin metadata (name, version, description, authors)
-- Registers document operations (FastpOperation)
-- Defines API version compatibility
+### Quality Control
+- **Automatic read type detection** - Uses fastp for short reads and fastplong for long reads
+- **Comprehensive HTML reports** - Detailed quality metrics and statistics
+- **JSON output** - Machine-readable results for automation
+- **Paired-end support** - Processes R1/R2 files with proper pairing
 
-**Status:** Skeleton implemented with TODOs
+### Read Optimization
+- **BBTools clumpify integration** - Sorts reads for 2-4x better compression
+- **Multiple sorting modes:**
+  - Optical duplicate detection and removal
+  - Exact duplicate detection and removal
+  - Spany mode for improved compression
+  - Configurable compaction levels
+  - Custom parameters for advanced users
 
-### 2. FastpOperation.java
-**Purpose:** Implements the actual QC operation that users invoke.
+### Quality Score Preservation
+- **FASTQ format maintained** - Quality scores preserved through entire workflow
+- **Paired-end integrity** - R1/R2 synchronization maintained
+- **No data loss** - All sequence information retained
 
-**Responsibilities:**
-- Defines how the operation appears in Geneious UI (menus, toolbar)
-- Validates input documents (must be FASTQ files)
-- Determines processing mode (single-end vs paired-end, short vs long reads)
-- Coordinates the entire workflow from input to output
-- Creates and returns result documents
+### User Interface
+- **Tools menu integration** - Access via "Fastp QC" command
+- **Advanced options panel** - Full control over all parameters
+- **Command logging** - All executed commands logged to Info tab
+- **Progress tracking** - Real-time status updates during processing
 
-**Key Methods:**
-- `getActionOptions()`: Configures menu placement and appearance
-- `getSelectionSignatures()`: Defines valid input document types
-- `getOptions()`: Returns the options panel
-- `performOperation()`: Main execution method
-
-**Status:** Skeleton implemented with comprehensive TODOs
-
-### 3. FastpOptions.java
-**Purpose:** Creates the user interface for configuring fastp parameters.
-
-**Responsibilities:**
-- Extends Geneious Options class
-- Creates form fields for all fastp parameters
-- Groups related options into logical sections
-- Validates user input
-- Provides getter methods for retrieving configured values
-
-**Parameter Categories:**
-- Tool selection (fastp vs fastplong)
-- Quality filtering thresholds
-- Length filtering limits
-- Adapter trimming configuration
-- Per-read quality cutting
-- Base correction
-- UMI processing
-- Complexity filtering
-
-**Status:** Skeleton implemented with TODOs for all option fields
-
-### 4. FastpBinaryManager.java
-**Purpose:** Manages fastp/fastplong binary detection and validation.
-
-**Responsibilities:**
-- Detects fastp and fastplong binaries on the system
-- Handles platform-specific paths (Windows, macOS, Linux)
-- Validates binary executability and version
-- Provides paths for command execution
-- Allows manual configuration of binary locations
-
-**Detection Strategy:**
-1. Check bundled binaries (if we include them)
-2. Search system PATH
-3. Check common installation locations
-4. Allow user to specify custom paths
-
-**Status:** Skeleton implemented with TODO for detection logic
-
-### 5. FastpExecutor.java
-**Purpose:** Executes fastp commands and manages process I/O.
-
-**Responsibilities:**
-- Builds command lines from user options
-- Executes external fastp/fastplong processes
-- Captures stdout/stderr output
-- Reports progress to Geneious
-- Handles cancellation
-- Returns exit codes for error handling
-
-**Key Methods:**
-- `executeSingleEnd()`: Run fastp on single-end reads
-- `executePairedEnd()`: Run fastp on paired-end reads
-- `buildSingleEndCommand()`: Construct command for single-end
-- `buildPairedEndCommand()`: Construct command for paired-end
-- `executeCommand()`: Execute and monitor process
-
-**Status:** Skeleton implemented with TODO for process execution
-
-## Build System
-
-The project uses **Apache Ant** for building, which is the standard build system for Geneious plugins.
-
-### Build File: build.xml
-
-**Key Targets:**
-- `clean`: Removes build artifacts
-- `prepare`: Creates build directories
-- `compile`: Compiles Java sources (target Java 11)
-- `build`: Creates JAR file with compiled classes and plugin.properties
-- `distribute`: Creates .gplugin file for distribution (copy of JAR with .gplugin extension)
-
-**Classpath Configuration:**
-The build.xml references the Geneious DevKit libraries:
-- `GeneiousPublicAPI.jar`: Core Geneious API
-- `jdom.jar`: XML processing
-- `jebl.jar`: JEBL bioinformatics library
-- `commons-io-*.jar`: Apache Commons IO utilities
-- `commons-lang3-*.jar`: Apache Commons Lang utilities
-
-**DevKit Location:**
-Currently hardcoded to: `/Users/dho/Downloads/geneious-2025.2.2-devkit`
-
-To customize for your environment, edit the `devkit` property in build.xml.
-
-## Plugin Metadata: plugin.properties
-
-Contains essential plugin information:
-- `plugin-name`: Fully qualified main class name (com.biomatters.plugins.fastp.FastpPlugin)
-- `short-plugin-name`: Short name used for file naming (FastpPlugin)
-- `version`: Plugin version (1.0.0)
-- `author`: Plugin author
-- `description`: Brief description of functionality
-
-## Building the Plugin
+## Installation
 
 ### Prerequisites
-- Java Development Kit (JDK) 11 or later
-- Apache Ant
-- Geneious Prime DevKit (2025.2.2 or compatible)
+- Geneious Prime (version 2023.0 or later recommended)
+- Java 11 or later
+- macOS (Intel or Apple Silicon)
+
+### Installing the Plugin
+
+1. Download the latest release (`FastpPlugin.gplugin`)
+2. In Geneious Prime:
+   - Go to **Tools → Plugins...**
+   - Click **Install plugin from a gplugin file**
+   - Select the downloaded `.gplugin` file
+   - Restart Geneious Prime
+
+Alternatively, copy the `.gplugin` file to:
+- macOS: `~/Library/Application Support/Geneious Prime/plugins/`
+- Windows: `%APPDATA%\Geneious Prime\plugins\`
+- Linux: `~/.geneious_prime/plugins/`
+
+### Verification
+
+After installation, verify the plugin is loaded:
+- Check **Tools → Plugins...** and look for "Fastp Plugin"
+- The "Fastp QC" option should appear in the **Tools** menu
+
+## Usage
+
+### Basic Workflow
+
+1. **Select sequences** - Select one or more FASTQ documents in Geneious
+2. **Launch tool** - Go to **Tools → Fastp QC**
+3. **Configure options** - Adjust quality control and clumpify settings
+4. **Run analysis** - Click OK to process
+
+### Paired-End Processing
+
+The plugin automatically detects paired-end reads:
+- Files are grouped by naming patterns (R1/R2)
+- Both files receive identical quality control settings
+- Pairing is maintained throughout the workflow
+- Results are imported as paired-end sequence lists
+
+### Quality Control Options
+
+Configure fastp/fastplong parameters:
+- **Quality filtering** - Minimum quality scores and window sizes
+- **Length filtering** - Minimum and maximum read lengths
+- **Adapter trimming** - Automatic adapter detection and removal
+- **Complexity filtering** - Remove low-complexity sequences
+- **Base correction** - Quality score recalibration
+
+### Clumpify Options
+
+Optimize read ordering for better compression:
+
+**Enable Clumpify** - Toggle read optimization (enabled by default)
+
+**Optical Duplicates:**
+- Detects and removes optical duplicates
+- Recommended for NovaSeq and other patterned flowcells
+
+**Exact Duplicates:**
+- Removes reads that are 100% identical
+- Reduces file size and computational load
+
+**Spany Mode:**
+- Enables spany mode for paired-end reads
+- Improved compression for paired data
+
+**Compaction Level:**
+- Default: Balanced compression and speed
+- Conservative: Lower memory usage
+- Aggressive: Maximum compression
+
+**Custom Parameters:**
+- Free-form field for advanced clumpify options
+- Example: `groups=4 k=31`
+
+### Output
+
+The plugin generates:
+- **Processed FASTQ files** - Quality-controlled and optimized reads
+- **HTML reports** - Visual quality metrics and statistics
+- **JSON reports** - Structured data for downstream analysis
+- **Metadata** - All commands logged to document Info tab
+
+## Building from Source
+
+### Build Requirements
+- JDK 11 or later
+- Apache Ant 1.10+
+- Geneious Prime SDK (2025.2.2 or compatible)
 
 ### Build Commands
 
+**Full distribution (33MB - includes all binaries):**
 ```bash
-# Clean previous builds
 ant clean
-
-# Compile sources
-ant compile
-
-# Build JAR
-ant build
-
-# Create distributable .gplugin file
 ant distribute
+```
+
+**Skinny distribution (66KB - no binaries):**
+```bash
+ant clean
+ant distribute-skinny
 ```
 
 ### Build Output
 
-After running `ant distribute`, you'll find:
-- `build/FastpPlugin.jar`: The compiled plugin JAR
-- `build/FastpPlugin.gplugin`: The distributable plugin file
+**Full Version:**
+- `build/FastpPlugin.gplugin` (33MB)
+- Includes fastp, fastplong, BBTools suite (271+ utilities), and seqkit
+- Ready to use immediately after installation
 
-## Installing the Plugin in Geneious
+**Skinny Version:**
+- `build/FastpPlugin-skinny.gplugin` (66KB)
+- Plugin code only
+- Requires separate installation of fastp, fastplong, BBTools, and seqkit
+- Tools must be available in system PATH
 
-1. Build the plugin: `ant distribute`
-2. Locate the .gplugin file: `build/FastpPlugin.gplugin`
-3. Install in Geneious:
-   - **Option A:** Tools → Plugins → Install Plugin from File
-   - **Option B:** Copy to Geneious plugins directory:
-     - macOS: `~/Library/Application Support/Geneious Prime/plugins/`
-     - Windows: `%APPDATA%\Geneious Prime\plugins\`
-     - Linux: `~/.geneious_prime/plugins/`
-4. Restart Geneious Prime
+## Included Tools
 
-## Referencing Geneious API
+### fastp / fastplong
+- **Size:** 3.2MB (macOS universal binary)
+- **License:** MIT
+- **Purpose:** Quality control for short and long reads
+- **Source:** https://github.com/OpenGene/fastp
 
-The plugin references the Geneious API through JARs in the DevKit:
+### BBTools Suite
+- **Size:** 43MB
+- **License:** BSD 3-Clause
+- **Tools:** 271+ utilities (currently using clumpify)
+- **Purpose:** Read optimization and future processing features
+- **Source:** https://sourceforge.net/projects/bbmap/
 
-### Required JARs
-- **GeneiousPublicAPI.jar**: Main API for plugin development
-  - Located at: `${devkit}/examples/GeneiousFiles/lib/GeneiousPublicAPI.jar`
-  - Contains all public API classes and interfaces
-  - Key packages:
-    - `com.biomatters.geneious.publicapi.plugin.*`: Plugin framework
-    - `com.biomatters.geneious.publicapi.documents.*`: Document types
-    - `com.biomatters.geneious.publicapi.implementations.*`: Utility implementations
+### seqkit
+- **Size:** 36MB
+- **License:** MIT
+- **Purpose:** Reserved for future sequence manipulation features
+- **Source:** https://github.com/shenwei356/seqkit
 
-- **jebl.jar**: JEBL (Java Evolutionary Biology Library)
-  - Contains progress monitoring and other utilities
-  - Package: `jebl.util.*`
+All binaries are macOS universal builds supporting both Intel and Apple Silicon.
 
-- **jdom.jar**: XML parsing library
-  - Used for reading/writing XML data
+## Platform Support
 
-### API Documentation
-Complete API documentation is available in:
-- `${devkit}/api-javadoc/`: HTML Javadoc for all public APIs
-- `${devkit}/PhobosPluginDevelopment.pdf`: Comprehensive plugin development guide
+### Currently Supported
+- **macOS** (10.15 Catalina and later)
+  - Intel (x86_64)
+  - Apple Silicon (ARM64)
+  - Universal binaries included
 
-### Key API Classes Used
+### Planned
+- **Linux** (x86_64 and ARM64)
+  - Binaries ready, integration planned for future release
 
-**Plugin Framework:**
-- `GeneiousPlugin`: Base class for all plugins
-- `DocumentOperation`: Base class for operations that process documents
-- `Options`: Base class for creating configuration UIs
-- `GeneiousActionOptions`: Configures how operations appear in menus
+## Workflow Pipeline
 
-**Document Types:**
-- `AnnotatedPluginDocument`: Wrapper for documents with metadata
-- `PluginDocument`: Base document interface
-- `SequenceDocument`: Interface for sequence data
-- `NucleotideSequenceDocument`: Nucleotide sequences
-
-**Progress Monitoring:**
-- `ProgressListener` (from jebl.util): Interface for progress callbacks
-
-**Exceptions:**
-- `DocumentOperationException`: Exception thrown when operations fail
-
-## Development Status
-
-### Completed
-- [x] Project directory structure
-- [x] Build configuration (build.xml)
-- [x] Plugin metadata (plugin.properties)
-- [x] Skeleton classes with comprehensive documentation
-- [x] TODO comments explaining implementation steps
-
-### Next Steps (Implementation Phase)
-
-1. **FastpOptions.java**
-   - [ ] Add all option fields using Geneious Options API
-   - [ ] Implement option validation
-   - [ ] Add tooltips and help text
-   - [ ] Create preset configurations
-
-2. **FastpBinaryManager.java**
-   - [ ] Implement binary detection for macOS
-   - [ ] Implement binary detection for Windows
-   - [ ] Implement binary detection for Linux
-   - [ ] Add version checking
-   - [ ] Handle user-specified paths
-
-3. **FastpExecutor.java**
-   - [ ] Implement process execution
-   - [ ] Add output capture and parsing
-   - [ ] Implement progress reporting
-   - [ ] Add cancellation support
-   - [ ] Handle error conditions
-
-4. **FastpOperation.java**
-   - [ ] Implement document validation
-   - [ ] Add paired-end detection
-   - [ ] Add long-read detection
-   - [ ] Implement FASTQ export
-   - [ ] Implement fastp execution
-   - [ ] Parse JSON output
-   - [ ] Import processed sequences
-   - [ ] Import HTML report
-   - [ ] Add temporary file cleanup
-
-5. **Testing**
-   - [ ] Unit tests for each class
-   - [ ] Integration tests with sample FASTQ files
-   - [ ] Test with different input types
-   - [ ] Test error handling
-   - [ ] Test on multiple platforms
-
-6. **Documentation**
-   - [ ] User documentation
-   - [ ] Installation guide
-   - [ ] Parameter reference
-   - [ ] Example workflows
-
-## Fastp/Fastplong Features to Implement
-
-### Core Quality Control
-- Quality profiling and filtering
-- Adapter detection and trimming
-- Per-read quality pruning
-- Base correction in overlapped regions (PE)
-
-### Filtering Options
-- Length filtering (min/max)
-- Quality filtering (phred score thresholds)
-- N-base filtering
-- Complexity filtering
-- Duplication analysis
-
-### Output
-- Filtered FASTQ files
-- JSON statistics report
-- HTML visualization report
-- Integration of reports into Geneious
-
-### Advanced Features
-- UMI (Unique Molecular Identifier) processing
-- Overrepresentation analysis
-- Custom adapter sequences
-- Polymerase chain trimming
-- Multi-threading support
-
-## Resources
-
-- **Fastp GitHub:** https://github.com/OpenGene/fastp
-- **Fastplong GitHub:** https://github.com/OpenGene/fastplong
-- **Geneious DevKit Documentation:** `${devkit}/PhobosPluginDevelopment.pdf`
-- **Geneious API Javadoc:** `${devkit}/api-javadoc/`
-
-## License
-
-TODO: Add license information
-
-## Author
-
-David Ho
+```
+Input FASTQ Files
+       ↓
+   Export to temp directory
+       ↓
+   fastp/fastplong Quality Control
+       ↓
+   clumpify Read Optimization (optional)
+       ↓
+   Import to Geneious
+       ↓
+   Output: Processed FASTQ + Reports
+```
 
 ## Version History
 
-- **1.0.0** (Current): Initial project structure and skeleton implementation
+### 1.1.0 (Current)
+- Added BBTools clumpify integration
+- Command logging to Info tab
+- Advanced clumpify options panel
+- Quality score preservation improvements
+- Full paired-end R1/R2 support
+
+### 1.0.0
+- Initial release
+- fastp/fastplong integration
+- Basic quality control features
+- macOS support
+
+## Troubleshooting
+
+### Common Issues
+
+**Plugin doesn't appear in Tools menu:**
+- Verify installation in Tools → Plugins
+- Restart Geneious Prime completely
+- Check Java version (must be 11+)
+- Try reinstalling the plugin
+
+**Clumpify not running:**
+- Check "Enable clumpify" checkbox in options
+- Review command log in document Info tab
+- Verify BBTools files were extracted (check console output)
+
+**Paired-end files not detected:**
+- Ensure file names follow R1/R2 naming convention
+- Select both files before running operation
+- Verify files are FASTQ format
+
+**Out of memory errors:**
+- Increase Geneious Prime memory allocation
+- Process files in smaller batches
+- Use lower clumpify compaction level
+
+### Debug Information
+
+All commands are logged to the document Info tab:
+1. Select the processed document
+2. Click the Info tab
+3. Look for "Fastp Command" and "Clumpify Command" fields
+4. Review command output for error messages
+
+## Future Enhancements
+
+Planned features for future releases:
+- Additional BBTools utilities (bbduk, bbmerge, bbmap)
+- seqkit integration for sequence manipulation
+- Linux binary support
+- Windows support
+- Batch processing improvements
+- Preset configurations
+
+## Contributing
+
+Contributions are welcome! Areas for improvement:
+- Platform support (Linux, Windows)
+- Additional BBTools integration
+- UI enhancements
+- Documentation improvements
+
+## License
+
+This plugin code is distributed under the BSD 3-Clause License.
+
+### Third-Party Licenses
+
+All included binaries are redistributable under permissive licenses:
+- **fastp/fastplong:** MIT License
+- **BBTools:** BSD 3-Clause License (U.S. Government work)
+- **seqkit:** MIT License
+
+Complete license texts available in `THIRD_PARTY_LICENSES.txt`
+
+## Credits
+
+### Plugin Development
+- Architecture and implementation
+- Workflow design
+- Build system and distribution
+
+### Third-Party Tools
+- **fastp/fastplong** - Shifu Chen, OpenGene
+- **BBTools** - Brian Bushnell, Joint Genome Institute, Lawrence Berkeley National Laboratory
+- **seqkit** - Wei Shen, Oxford Nanopore Technologies
+
+## Support
+
+For issues, questions, or contributions:
+- Submit GitHub issues with detailed error information
+- Include Geneious version, plugin version, and macOS version
+- Attach command log output from Info tab
+- Provide sample data if possible (anonymized)
+
+---
+
+**This plugin is actively maintained and in production use.**

@@ -3,6 +3,9 @@ package com.biomatters.plugins.fastp;
 import com.biomatters.geneious.publicapi.documents.AnnotatedPluginDocument;
 import com.biomatters.geneious.publicapi.plugin.Options;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Options panel for configuring fastp/fastplong parameters.
  *
@@ -18,6 +21,7 @@ import com.biomatters.geneious.publicapi.plugin.Options;
  * 2. Input/Output Options
  *    - Compression level
  *    - Output format options
+ *    - Clumpify optimization
  *
  * 3. Quality Filtering
  *    - Qualified quality phred (default: 15)
@@ -58,13 +62,21 @@ import com.biomatters.geneious.publicapi.plugin.Options;
  *     - Different adapter detection strategies
  *
  * @author David Ho
- * @version 1.0.0
+ * @version 1.1.0
  */
 public class FastpOptions extends Options {
 
     // Option keys - used to retrieve values later
     private static final String TOOL_MODE = "toolMode";
     private static final String THREADS = "threads";
+
+    // Clumpify option
+    private static final String ENABLE_CLUMPIFY = "enableClumpify";
+    private static final String CLUMPIFY_OPTICAL = "clumpifyOptical";
+    private static final String CLUMPIFY_DEDUPE = "clumpifyDedupe";
+    private static final String CLUMPIFY_SPANY = "clumpifySpany";
+    private static final String CLUMPIFY_COMPACTION = "clumpifyCompaction";
+    private static final String CLUMPIFY_ADDITIONAL = "clumpifyAdditional";
 
     // Quality filtering options
     private static final String QUALIFIED_QUALITY_PHRED = "qualifiedQualityPhred";
@@ -128,6 +140,14 @@ public class FastpOptions extends Options {
     // Option field references
     private ComboBoxOption<OptionValue> toolModeOption;
     private IntegerOption threadsOption;
+    private BooleanOption enableClumpifyOption;
+
+    // Advanced clumpify options
+    private BooleanOption clumpifyOpticalOption;
+    private BooleanOption clumpifyDedupeOption;
+    private BooleanOption clumpifySpanyOption;
+    private ComboBoxOption<OptionValue> clumpifyCompactionOption;
+    private StringOption clumpifyAdditionalOption;
 
     // Quality filtering
     private IntegerOption qualifiedQualityPhredOption;
@@ -193,6 +213,14 @@ public class FastpOptions extends Options {
     private static final OptionValue TOOL_FASTP = new OptionValue("fastp", "Fastp (short reads)");
     private static final OptionValue TOOL_FASTPLONG = new OptionValue("fastplong", "Fastplong (long reads)");
     private static final OptionValue[] TOOL_MODES = new OptionValue[]{TOOL_AUTO, TOOL_FASTP, TOOL_FASTPLONG};
+
+    // Clumpify compaction level values
+    private static final OptionValue COMPACTION_DEFAULT = new OptionValue("default", "Default");
+    private static final OptionValue COMPACTION_CONSERVATIVE = new OptionValue("conservative", "Conservative (lowcomplexity=f)");
+    private static final OptionValue COMPACTION_AGGRESSIVE = new OptionValue("aggressive", "Aggressive (lowcomplexity=t)");
+    private static final OptionValue[] COMPACTION_LEVELS = new OptionValue[]{
+        COMPACTION_DEFAULT, COMPACTION_CONSERVATIVE, COMPACTION_AGGRESSIVE
+    };
 
     // UMI location values
     private static final OptionValue UMI_LOC_NONE = new OptionValue("none", "None");
@@ -275,6 +303,47 @@ public class FastpOptions extends Options {
 
         compressionLevelOption = addIntegerOption(COMPRESSION_LEVEL, "Compression level:", 4, 1, 9);
         compressionLevelOption.setDescription("Gzip compression level (1=fastest, 9=best compression)");
+
+        // Clumpify option
+        enableClumpifyOption = addBooleanOption(ENABLE_CLUMPIFY,
+            "Clumpify output FASTQ files (optimize for compression)", true);
+        enableClumpifyOption.setDescription(
+            "<html>Reorder reads by sequence similarity for better compression (2-4x improvement).<br>" +
+            "Clumpify is run after fastp/fastplong processing and before importing back to Geneious.<br>" +
+            "Requires BBTools clumpify.sh to be available in PATH.</html>");
+
+        // Advanced clumpify options (only shown when clumpify is enabled)
+        addLabel("<html><i>Advanced Clumpify Options (only applied when clumpify is enabled):</i></html>");
+
+        clumpifyOpticalOption = addBooleanOption(CLUMPIFY_OPTICAL,
+            "Remove optical duplicates", false);
+        clumpifyOpticalOption.setDescription(
+            "Remove optical duplicates (recommended for patterned flowcells like NovaSeq)");
+        enableClumpifyOption.addDependent(clumpifyOpticalOption, true);
+
+        clumpifyDedupeOption = addBooleanOption(CLUMPIFY_DEDUPE,
+            "Remove exact duplicate reads", false);
+        clumpifyDedupeOption.setDescription(
+            "Remove exact duplicate reads (reduces file size, may lose information)");
+        enableClumpifyOption.addDependent(clumpifyDedupeOption, true);
+
+        clumpifySpanyOption = addBooleanOption(CLUMPIFY_SPANY,
+            "Use spany mode", false);
+        clumpifySpanyOption.setDescription(
+            "Use spany mode for better compression with paired-end reads");
+        enableClumpifyOption.addDependent(clumpifySpanyOption, true);
+
+        clumpifyCompactionOption = addComboBoxOption(CLUMPIFY_COMPACTION,
+            "Compaction level:", COMPACTION_LEVELS, COMPACTION_DEFAULT);
+        clumpifyCompactionOption.setDescription(
+            "Memory/quality tradeoff for compression");
+        enableClumpifyOption.addDependent(clumpifyCompactionOption, true);
+
+        clumpifyAdditionalOption = addStringOption(CLUMPIFY_ADDITIONAL,
+            "Additional clumpify parameters:", "");
+        clumpifyAdditionalOption.setDescription(
+            "Additional clumpify.sh parameters (e.g., 'groups=4 k=31')");
+        enableClumpifyOption.addDependent(clumpifyAdditionalOption, true);
 
         addDivider("");
 
@@ -550,6 +619,107 @@ public class FastpOptions extends Options {
      */
     public int getCompressionLevel() {
         return compressionLevelOption.getValue();
+    }
+
+    /**
+     * Checks if clumpify is enabled.
+     * @return true if clumpify should be run
+     */
+    public boolean isClumpifyEnabled() {
+        return enableClumpifyOption.getValue();
+    }
+
+    /**
+     * Checks if optical duplicate removal is enabled for clumpify.
+     * @return true if optical=t should be used
+     */
+    public boolean isClumpifyOpticalEnabled() {
+        return clumpifyOpticalOption.getValue();
+    }
+
+    /**
+     * Checks if exact duplicate removal is enabled for clumpify.
+     * @return true if dedupe=t should be used
+     */
+    public boolean isClumpifyDedupeEnabled() {
+        return clumpifyDedupeOption.getValue();
+    }
+
+    /**
+     * Checks if spany mode is enabled for clumpify.
+     * @return true if spany=t should be used
+     */
+    public boolean isClumpifySpanyEnabled() {
+        return clumpifySpanyOption.getValue();
+    }
+
+    /**
+     * Gets the clumpify compaction level.
+     * @return "default", "conservative", or "aggressive"
+     */
+    public String getClumpifyCompactionLevel() {
+        return clumpifyCompactionOption.getValue().getName();
+    }
+
+    /**
+     * Gets additional clumpify parameters.
+     * @return additional parameters string
+     */
+    public String getClumpifyAdditionalParams() {
+        return clumpifyAdditionalOption.getValue();
+    }
+
+    /**
+     * Builds the clumpify command arguments based on selected options.
+     * Returns a list of command arguments to be added to the clumpify command.
+     *
+     * @return list of clumpify command arguments
+     */
+    public List<String> getClumpifyCommandArgs() {
+        List<String> args = new ArrayList<>();
+
+        // Default behavior: reorder reads, don't dedupe (unless explicitly enabled)
+        args.add("reorder=t");
+
+        // Dedupe option - explicitly set based on user selection
+        if (isClumpifyDedupeEnabled()) {
+            args.add("dedupe=t");
+        } else {
+            args.add("dedupe=f");
+        }
+
+        // Optical duplicate removal
+        if (isClumpifyOpticalEnabled()) {
+            args.add("optical=t");
+        }
+
+        // Spany mode
+        if (isClumpifySpanyEnabled()) {
+            args.add("spany=t");
+        }
+
+        // Compaction level
+        String compaction = getClumpifyCompactionLevel();
+        if ("conservative".equals(compaction)) {
+            args.add("lowcomplexity=f");
+        } else if ("aggressive".equals(compaction)) {
+            args.add("lowcomplexity=t");
+        }
+        // "default" doesn't add any parameter
+
+        // Additional parameters
+        String additional = getClumpifyAdditionalParams();
+        if (additional != null && !additional.trim().isEmpty()) {
+            // Split by whitespace and add each parameter
+            String[] additionalParams = additional.trim().split("\\s+");
+            for (String param : additionalParams) {
+                if (!param.isEmpty()) {
+                    args.add(param);
+                }
+            }
+        }
+
+        return args;
     }
 
     /**

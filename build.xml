@@ -6,6 +6,7 @@
     <property name="build" location="build"/>
     <property name="classes" location="classes"/>
     <property name="src" location="src"/>
+    <property name="java-src" location="src/com"/>
     <property name="resources" location="src/main/resources"/>
     <property name="devkit" location="/Users/dho/Downloads/geneious-2025.2.2-devkit"/>
 
@@ -20,18 +21,67 @@
         </fileset>
     </path>
 
-    <!-- Main distribution target - creates the .gplugin file -->
+    <!-- Main distribution target - creates the .gplugin file with all binaries -->
     <target name="distribute" depends="build">
         <copy file="${build}/${short-plugin-name}.jar" tofile="${build}/${short-plugin-name}.gplugin"/>
         <echo message="Created ${build}/${short-plugin-name}.gplugin"/>
         <echo message="Install this plugin in Geneious by copying it to the Geneious plugins directory"/>
     </target>
 
+    <!-- Build skinny version - JAR without bundled binaries (for users who install tools separately) -->
+    <target name="build-skinny" depends="compile">
+        <jar jarfile="${build}/${short-plugin-name}-skinny.jar">
+            <!-- Compiled Java classes -->
+            <fileset dir="${classes}"/>
+
+            <!-- Resources WITHOUT binaries - excludes fastp, fastplong, BBTools, seqkit -->
+            <fileset dir="${resources}">
+                <include name="**/*"/>
+                <exclude name="binaries/**"/>
+            </fileset>
+
+            <!-- Plugin configuration -->
+            <fileset dir="">
+                <include name="plugin.properties"/>
+            </fileset>
+        </jar>
+    </target>
+
+    <!-- Skinny distribution target - creates .gplugin without binaries -->
+    <target name="distribute-skinny" depends="build-skinny">
+        <copy file="${build}/${short-plugin-name}-skinny.jar" tofile="${build}/${short-plugin-name}-skinny.gplugin"/>
+        <echo message=""/>
+        <echo message="========================================"/>
+        <echo message="Created SKINNY plugin: ${build}/${short-plugin-name}-skinny.gplugin"/>
+        <echo message="========================================"/>
+        <echo message=""/>
+        <echo message="IMPORTANT: This skinny version does NOT include bundled binaries."/>
+        <echo message="Users must install the following tools separately:"/>
+        <echo message="  - fastp/fastplong"/>
+        <echo message="  - BBTools suite"/>
+        <echo message="  - seqkit"/>
+        <echo message=""/>
+        <echo message="See README.md for installation instructions."/>
+        <echo message="========================================"/>
+        <echo message=""/>
+    </target>
+
     <!-- Build target - creates the JAR file with compiled classes, resources, and plugin.properties -->
     <target name="build" depends="compile">
         <jar jarfile="${build}/${short-plugin-name}.jar">
+            <!-- Compiled Java classes -->
             <fileset dir="${classes}"/>
-            <fileset dir="${resources}"/>
+
+            <!-- All resources including binaries for:
+                 - fastp and fastplong (macos)
+                 - BBTools suite (macos): shell scripts, compiled .class files in current/ directory
+                 - seqkit (macos)
+            -->
+            <fileset dir="${resources}">
+                <include name="**/*"/>
+            </fileset>
+
+            <!-- Plugin configuration -->
             <fileset dir="">
                 <include name="plugin.properties"/>
             </fileset>
@@ -42,7 +92,8 @@
     <target name="compile" depends="prepare">
         <javac target="11" source="11" destdir="${classes}" debug="true" includeantruntime="false">
             <classpath refid="classpath"/>
-            <src path="${src}"/>
+            <!-- Only compile Java sources from src/com, excluding resources -->
+            <src path="${java-src}"/>
         </javac>
     </target>
 

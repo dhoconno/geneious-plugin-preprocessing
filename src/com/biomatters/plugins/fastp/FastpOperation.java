@@ -9,6 +9,10 @@ import com.biomatters.geneious.publicapi.documents.sequence.SequenceDocument;
 import com.biomatters.geneious.publicapi.documents.sequence.SequenceListDocument;
 import com.biomatters.geneious.publicapi.documents.sequence.DefaultSequenceListDocument;
 import com.biomatters.geneious.publicapi.implementations.sequence.DefaultNucleotideSequence;
+import com.biomatters.geneious.publicapi.implementations.sequence.DefaultNucleotideGraphSequence;
+import com.biomatters.geneious.publicapi.documents.sequence.NucleotideGraphSequenceDocument;
+import com.biomatters.geneious.publicapi.documents.sequence.DefaultNucleotideGraph;
+import com.biomatters.geneious.publicapi.documents.sequence.NucleotideGraph;
 import com.biomatters.geneious.publicapi.plugin.DocumentOperation;
 import com.biomatters.geneious.publicapi.plugin.DocumentOperationException;
 import com.biomatters.geneious.publicapi.plugin.DocumentSelectionSignature;
@@ -53,7 +57,7 @@ import java.util.regex.Pattern;
  * - Compressed FASTQ files (gzip)
  *
  * @author David Ho
- * @version 1.0.0
+ * @version 1.1.0
  */
 public class FastpOperation extends DocumentOperation {
 
@@ -71,18 +75,16 @@ public class FastpOperation extends DocumentOperation {
     /**
      * Returns the action options that define how this operation appears in Geneious.
      *
+     * FIXED: Changed category from None to Sequence to appear in Tools > Sequences menu
+     *
      * @return GeneiousActionOptions configuration
      */
     @Override
     public GeneiousActionOptions getActionOptions() {
-        return new GeneiousActionOptions(
-            "Run Fastp QC",  // Menu item name
-            "Perform quality control and preprocessing on sequencing reads using fastp/fastplong",
-            null,  // No custom icon for now
-            GeneiousActionOptions.Category.None  // No specific category (will appear in main menu)
-        )
-        .setInMainToolbar(true)  // Show in main toolbar for easy access
-        .setInPopupMenu(true);   // Show in right-click context menu
+        return new GeneiousActionOptions("Fastp QC",
+            "Perform quality control and preprocessing on sequencing reads using fastp/fastplong")
+            .setMainMenuLocation(GeneiousActionOptions.MainMenu.Tools)
+            .setInPopupMenu(true);
     }
 
     /**
@@ -187,6 +189,37 @@ public class FastpOperation extends DocumentOperation {
             throw new DocumentOperationException("Failed to initialize fastp binaries: " + e.getMessage(), e);
         }
 
+        // FIX 2: Initialize BBTools binary manager if clumpify is enabled
+        BBToolsBinaryManager bbToolsManager = null;
+
+        // EXPLICIT DEBUG: Check the option value
+        System.out.println("\n========================================");
+        System.out.println("=== CLUMPIFY OPTION CHECK ===");
+        System.out.println("========================================");
+        boolean clumpifyEnabled = fastpOptions.isClumpifyEnabled();
+        System.out.println("fastpOptions.isClumpifyEnabled() returned: " + clumpifyEnabled);
+        System.out.println("Options object class: " + fastpOptions.getClass().getName());
+        System.out.println("========================================\n");
+
+        if (clumpifyEnabled) {
+            System.out.println(">>> CLUMPIFY IS ENABLED - Initializing BBTools...");
+            System.out.println(">>> This message confirms clumpify option is TRUE");
+            bbToolsManager = BBToolsBinaryManager.getInstance();
+            try {
+                bbToolsManager.initialize();
+                System.out.println("BBTools initialized successfully");
+                System.out.println("Clumpify script: " + bbToolsManager.getClumpifyScriptPath());
+            } catch (IOException e) {
+                System.err.println("WARNING: Failed to initialize BBTools: " + e.getMessage());
+                System.err.println("Clumpify will be skipped");
+                logger.warning("BBTools initialization failed, clumpify will be skipped: " + e.getMessage());
+                clumpifyEnabled = false; // Disable clumpify if initialization fails
+            }
+        } else {
+            System.out.println(">>> CLUMPIFY IS DISABLED - Skipping BBTools initialization");
+            System.out.println(">>> If you expected clumpify to run, check the option in the UI");
+        }
+
         List<AnnotatedPluginDocument> allOutputDocuments = new ArrayList<>();
 
         try {
@@ -213,7 +246,8 @@ public class FastpOperation extends DocumentOperation {
 
                 // Process this group
                 List<AnnotatedPluginDocument> groupOutput = processDocumentGroup(
-                    group, fastpOptions, binaryManager, progressListener, groupIndex, documentGroups.size()
+                    group, fastpOptions, binaryManager, bbToolsManager, clumpifyEnabled,
+                    progressListener, groupIndex, documentGroups.size()
                 );
 
                 System.out.println("Group " + groupIndex + " produced " + groupOutput.size() + " output document(s)");
@@ -326,6 +360,8 @@ public class FastpOperation extends DocumentOperation {
      * @param documents the documents in this group (1 for SE, 2 for PE)
      * @param options fastp options
      * @param binaryManager binary manager
+     * @param bbToolsManager BBTools binary manager (may be null)
+     * @param clumpifyEnabled whether clumpify should be run
      * @param progressListener progress listener
      * @param groupIndex current group index
      * @param totalGroups total number of groups
@@ -335,11 +371,25 @@ public class FastpOperation extends DocumentOperation {
             List<AnnotatedPluginDocument> documents,
             FastpOptions options,
             FastpBinaryManager binaryManager,
+            BBToolsBinaryManager bbToolsManager,
+            boolean clumpifyEnabled,
             ProgressListener progressListener,
             int groupIndex,
             int totalGroups) throws DocumentOperationException {
 
         boolean isPairedEnd = documents.size() == 2;
+
+        // ADDED: Debug output for paired-end detection
+        System.out.println("\n=== PAIRED-END DETECTION ===");
+        if (isPairedEnd) {
+            System.out.println("Detected paired-end reads: R1 and R2");
+            System.out.println("  R1: " + documents.get(0).getName());
+            System.out.println("  R2: " + documents.get(1).getName());
+        } else {
+            System.out.println("Detected single-end reads");
+            System.out.println("  File: " + documents.get(0).getName());
+        }
+
         logger.info("Processing " + (isPairedEnd ? "paired-end" : "single-end") + " group");
 
         File tempDir = null;
@@ -366,7 +416,7 @@ public class FastpOperation extends DocumentOperation {
 
             // Export sequences to FASTQ files
             progressListener.setMessage("Exporting sequences to FASTQ...");
-            List<File> inputFiles = exportToFastq(documents, tempDir);
+            List<File> inputFiles = exportToFastq(documents, tempDir, isPairedEnd);
 
             // Prepare output files
             List<File> outputFiles = new ArrayList<>();
@@ -380,6 +430,21 @@ public class FastpOperation extends DocumentOperation {
 
             // Execute fastp/fastplong and capture result
             progressListener.setMessage("Running " + (useFastplong ? "fastplong" : "fastp") + "...");
+
+            // ADDED: Debug output for fastp execution
+            System.out.println("\n=== RUNNING FASTP ===");
+            if (isPairedEnd) {
+                System.out.println("Running fastp with paired-end mode");
+                System.out.println("  Input R1: " + inputFiles.get(0).getAbsolutePath());
+                System.out.println("  Input R2: " + inputFiles.get(1).getAbsolutePath());
+                System.out.println("  Output R1: " + outputFiles.get(0).getAbsolutePath());
+                System.out.println("  Output R2: " + outputFiles.get(1).getAbsolutePath());
+            } else {
+                System.out.println("Running fastp with single-end mode");
+                System.out.println("  Input: " + inputFiles.get(0).getAbsolutePath());
+                System.out.println("  Output: " + outputFiles.get(0).getAbsolutePath());
+            }
+
             FastpExecutor executor = new FastpExecutor();
             FastpExecutionResult result;
 
@@ -420,14 +485,112 @@ public class FastpOperation extends DocumentOperation {
                 throw new DocumentOperationException(errorMessage);
             }
 
+            // FIX 2: Add clumpify execution after fastp if enabled
+            FastpExecutionResult clumpifyResult = null;
+
+            // EXPLICIT DEBUG: Check execution conditions
+            System.out.println("\n========================================");
+            System.out.println("=== CLUMPIFY EXECUTION CHECK ===");
+            System.out.println("========================================");
+            System.out.println("Condition 1 - clumpifyEnabled: " + clumpifyEnabled);
+            System.out.println("Condition 2 - bbToolsManager != null: " + (bbToolsManager != null));
+            if (bbToolsManager != null) {
+                System.out.println("Condition 3 - bbToolsManager.isBBToolsAvailable(): " + bbToolsManager.isBBToolsAvailable());
+            } else {
+                System.out.println("Condition 3 - bbToolsManager.isBBToolsAvailable(): CANNOT CHECK (manager is null)");
+            }
+            boolean willRunClumpify = clumpifyEnabled && bbToolsManager != null && bbToolsManager.isBBToolsAvailable();
+            System.out.println("RESULT: Will run clumpify? " + willRunClumpify);
+            System.out.println("========================================\n");
+
+            if (clumpifyEnabled && bbToolsManager != null && bbToolsManager.isBBToolsAvailable()) {
+                System.out.println("\n=== RUNNING CLUMPIFY ===");
+                progressListener.setMessage("Running clumpify for better compression...");
+
+                try {
+                    // Create clumpified output files
+                    List<File> clumpifiedFiles = new ArrayList<>();
+                    for (int i = 0; i < outputFiles.size(); i++) {
+                        File clumpifiedFile = new File(tempDir, "clumpified_" + (i + 1) + ".fastq");
+                        clumpifiedFiles.add(clumpifiedFile);
+                    }
+
+                    // Execute clumpify
+                    ClumpifyExecutor clumpifyExecutor = new ClumpifyExecutor();
+                    String clumpifyPath = bbToolsManager.getClumpifyScriptPath();
+
+                    // Get clumpify command arguments from options
+                    List<String> clumpifyArgs = options.getClumpifyCommandArgs();
+
+                    // ADDED: Debug output for clumpify execution
+                    if (isPairedEnd) {
+                        System.out.println("Running clumpify with paired-end mode");
+                        System.out.println("  Input R1: " + outputFiles.get(0).getAbsolutePath());
+                        System.out.println("  Input R2: " + outputFiles.get(1).getAbsolutePath());
+                        System.out.println("  Output R1: " + clumpifiedFiles.get(0).getAbsolutePath());
+                        System.out.println("  Output R2: " + clumpifiedFiles.get(1).getAbsolutePath());
+
+                        clumpifyResult = clumpifyExecutor.executePairedEnd(
+                            clumpifyPath,
+                            outputFiles.get(0), outputFiles.get(1),
+                            clumpifiedFiles.get(0), clumpifiedFiles.get(1),
+                            clumpifyArgs,
+                            progressListener
+                        );
+                    } else {
+                        System.out.println("Running clumpify with single-end mode");
+                        System.out.println("  Input: " + outputFiles.get(0).getAbsolutePath());
+                        System.out.println("  Output: " + clumpifiedFiles.get(0).getAbsolutePath());
+
+                        clumpifyResult = clumpifyExecutor.executeSingleEnd(
+                            clumpifyPath,
+                            outputFiles.get(0),
+                            clumpifiedFiles.get(0),
+                            clumpifyArgs,
+                            progressListener
+                        );
+                    }
+
+                    // Log clumpify execution
+                    System.out.println("\n=== Clumpify Execution Completed ===");
+                    System.out.println("Command: " + clumpifyResult.getCommand());
+                    System.out.println("Exit Code: " + clumpifyResult.getExitCode());
+                    logger.info("Clumpify execution completed with exit code: " + clumpifyResult.getExitCode());
+
+                    // Replace outputFiles with clumpified versions on success
+                    if (clumpifyResult.getExitCode() == 0) {
+                        System.out.println("Clumpify successful - using clumpified output files");
+                        outputFiles = clumpifiedFiles;
+                    } else {
+                        System.err.println("WARNING: Clumpify failed, using fastp output files");
+                        logger.warning("Clumpify failed with exit code " + clumpifyResult.getExitCode());
+                        clumpifyResult = null; // Don't include failed result in metadata
+                    }
+
+                } catch (Exception e) {
+                    System.err.println("WARNING: Clumpify execution failed: " + e.getMessage());
+                    logger.warning("Clumpify execution failed, using fastp output files: " + e.getMessage());
+                    clumpifyResult = null; // Don't include failed result in metadata
+                }
+            }
+
             // Parse JSON report
             progressListener.setMessage("Parsing results...");
             Map<String, Object> statistics = parseJsonReport(jsonReport);
 
             // Import processed sequences
             progressListener.setMessage("Importing processed sequences...");
+
+            // ADDED: Debug output for import
+            System.out.println("\n=== IMPORTING PROCESSED SEQUENCES ===");
+            if (isPairedEnd) {
+                System.out.println("Importing paired-end results");
+            } else {
+                System.out.println("Importing single-end results");
+            }
+
             List<AnnotatedPluginDocument> outputDocuments = importProcessedSequences(
-                outputFiles, documents, statistics, useFastplong, result
+                outputFiles, documents, statistics, useFastplong, result, clumpifyResult, isPairedEnd
             );
 
             // Import HTML report as a document
@@ -506,16 +669,36 @@ public class FastpOperation extends DocumentOperation {
      *
      * @param documents documents to export
      * @param outputDir output directory
+     * @param isPairedEnd whether this is paired-end data
      * @return list of exported FASTQ files
      */
-    private List<File> exportToFastq(List<AnnotatedPluginDocument> documents, File outputDir)
+    private List<File> exportToFastq(List<AnnotatedPluginDocument> documents, File outputDir, boolean isPairedEnd)
             throws IOException, DocumentOperationException {
 
         List<File> outputFiles = new ArrayList<>();
 
+        // ADDED: Debug output for export
+        System.out.println("\n=== EXPORTING TO FASTQ ===");
+        if (isPairedEnd) {
+            System.out.println("Exporting paired-end files:");
+        } else {
+            System.out.println("Exporting single-end file:");
+        }
+
         for (int i = 0; i < documents.size(); i++) {
             AnnotatedPluginDocument doc = documents.get(i);
-            File outputFile = new File(outputDir, "input_" + (i + 1) + ".fastq");
+
+            // FIXED: Use R1/R2 naming for paired-end files
+            String filename;
+            if (isPairedEnd) {
+                filename = "input_R" + (i + 1) + ".fastq";
+            } else {
+                filename = "input.fastq";
+            }
+            File outputFile = new File(outputDir, filename);
+
+            // ADDED: Debug output
+            System.out.println("  Exporting " + (isPairedEnd ? ("R" + (i + 1)) : "file") + ": " + outputFile.getAbsolutePath());
 
             // Handle both individual sequences and sequence lists
             List<NucleotideSequenceDocument> sequences = new ArrayList<>();
@@ -543,6 +726,7 @@ public class FastpOperation extends DocumentOperation {
 
             outputFiles.add(outputFile);
             logger.info("Exported " + doc.getName() + " (" + sequences.size() + " sequences) to " + outputFile.getName());
+            System.out.println("    Wrote " + sequences.size() + " sequences");
         }
 
         return outputFiles;
@@ -704,11 +888,16 @@ public class FastpOperation extends DocumentOperation {
     /**
      * Imports processed sequences from FASTQ files back into Geneious.
      *
+     * FIXED: Now properly handles paired-end imports by creating a single paired
+     * sequence list document containing both R1 and R2 sequences.
+     *
      * @param fastqFiles processed FASTQ files
      * @param originalDocs original input documents
      * @param statistics statistics from JSON report
      * @param isLongRead whether this is long-read data
      * @param executionResult the execution result containing command and outputs
+     * @param clumpifyResult the clumpify execution result (may be null)
+     * @param isPairedEnd whether this is paired-end data
      * @return list of imported documents
      */
     private List<AnnotatedPluginDocument> importProcessedSequences(
@@ -716,77 +905,194 @@ public class FastpOperation extends DocumentOperation {
             List<AnnotatedPluginDocument> originalDocs,
             Map<String, Object> statistics,
             boolean isLongRead,
-            FastpExecutionResult executionResult) throws IOException, DocumentOperationException {
+            FastpExecutionResult executionResult,
+            FastpExecutionResult clumpifyResult,
+            boolean isPairedEnd) throws IOException, DocumentOperationException {
 
         System.out.println("=== Importing Processed Sequences ===");
         logger.info("Importing processed sequences from " + fastqFiles.size() + " FASTQ file(s)");
 
+        if (isPairedEnd) {
+            System.out.println("Mode: PAIRED-END import");
+        } else {
+            System.out.println("Mode: SINGLE-END import");
+        }
+
         List<AnnotatedPluginDocument> outputDocs = new ArrayList<>();
 
-        for (int i = 0; i < fastqFiles.size(); i++) {
-            File fastqFile = fastqFiles.get(i);
-            AnnotatedPluginDocument originalDoc = originalDocs.get(i);
+        if (isPairedEnd && fastqFiles.size() == 2) {
+            // FIXED: Import paired-end files as a single paired sequence list
+            System.out.println("Creating paired-end sequence list...");
 
-            System.out.println("Processing file: " + fastqFile.getAbsolutePath());
-            System.out.println("File size: " + fastqFile.length() + " bytes");
+            File r1File = fastqFiles.get(0);
+            File r2File = fastqFiles.get(1);
 
-            if (!fastqFile.exists() || fastqFile.length() == 0) {
-                String msg = "Output FASTQ file is missing or empty: " + fastqFile.getName();
-                System.err.println("WARNING: " + msg);
-                logger.warning(msg);
-                continue;
+            System.out.println("  R1 file: " + r1File.getAbsolutePath() + " (" + r1File.length() + " bytes)");
+            System.out.println("  R2 file: " + r2File.getAbsolutePath() + " (" + r2File.length() + " bytes)");
+
+            if (!r1File.exists() || r1File.length() == 0) {
+                String msg = "R1 output FASTQ file is missing or empty: " + r1File.getName();
+                System.err.println("ERROR: " + msg);
+                throw new DocumentOperationException(msg);
             }
 
-            // Parse FASTQ file and create sequence documents
-            System.out.println("Parsing FASTQ file...");
-            List<NucleotideSequenceDocument> sequences = parseFastqFile(fastqFile);
-            System.out.println("Parsed " + sequences.size() + " sequences");
-
-            if (sequences.isEmpty()) {
-                String msg = "No sequences found in output file: " + fastqFile.getName();
-                System.err.println("WARNING: " + msg);
-                logger.warning(msg);
-                continue;
+            if (!r2File.exists() || r2File.length() == 0) {
+                String msg = "R2 output FASTQ file is missing or empty: " + r2File.getName();
+                System.err.println("ERROR: " + msg);
+                throw new DocumentOperationException(msg);
             }
 
-            // Create a sequence list document (not individual sequences)
-            System.out.println("Creating sequence list document...");
+            // Parse both FASTQ files
+            System.out.println("  Parsing R1 sequences...");
+            List<NucleotideGraphSequenceDocument> r1Sequences = parseFastqFileOptimized(r1File);
+            System.out.println("  Parsed " + r1Sequences.size() + " R1 sequences");
+
+            System.out.println("  Parsing R2 sequences...");
+            List<NucleotideGraphSequenceDocument> r2Sequences = parseFastqFileOptimized(r2File);
+            System.out.println("  Parsed " + r2Sequences.size() + " R2 sequences");
+
+            if (r1Sequences.isEmpty() || r2Sequences.isEmpty()) {
+                String msg = "No sequences found in paired-end output files";
+                System.err.println("ERROR: " + msg);
+                throw new DocumentOperationException(msg);
+            }
+
+            // Verify sequence counts match
+            if (r1Sequences.size() != r2Sequences.size()) {
+                String msg = "Paired-end sequence counts do not match: R1=" + r1Sequences.size() +
+                           ", R2=" + r2Sequences.size();
+                System.err.println("WARNING: " + msg);
+                logger.warning(msg);
+            }
+
+            // Create a combined list with interleaved R1 and R2 sequences
+            // This helps Geneious recognize them as paired
+            List<NucleotideSequenceDocument> allSequences = new ArrayList<>();
+            int maxCount = Math.min(r1Sequences.size(), r2Sequences.size());
+
+            System.out.println("  Interleaving " + maxCount + " paired sequences...");
+            for (int i = 0; i < maxCount; i++) {
+                allSequences.add(r1Sequences.get(i));
+                allSequences.add(r2Sequences.get(i));
+            }
+
+            // Create a single sequence list document for the paired data
+            System.out.println("  Creating paired sequence list document...");
             DefaultSequenceListDocument sequenceList =
-                DefaultSequenceListDocument.forNucleotideSequences(sequences);
+                DefaultSequenceListDocument.forNucleotideSequences(allSequences);
 
-            // Set a descriptive name
-            String listName = originalDoc.getName() + " (fastp filtered)";
+            // Set a descriptive name indicating it's paired-end
+            String baseName = originalDocs.get(0).getName();
+            // Remove R1/R2 indicators from base name
+            for (String indicator : PAIR_INDICATORS_R1) {
+                baseName = baseName.replace(indicator, "");
+            }
+            String listName = baseName + " (fastp paired-end filtered)";
             sequenceList.setName(listName);
-            System.out.println("Created sequence list: " + listName);
+            System.out.println("  Created paired list: " + listName);
 
             // Wrap in AnnotatedPluginDocument
             AnnotatedPluginDocument annotatedDoc = DocumentUtilities.createAnnotatedPluginDocument(sequenceList);
 
             // Add metadata
-            System.out.println("Adding metadata to sequence list...");
-            addMetadata(annotatedDoc, originalDoc, statistics, isLongRead, executionResult);
+            System.out.println("  Adding metadata to paired sequence list...");
+            addMetadata(annotatedDoc, originalDocs.get(0), statistics, isLongRead, executionResult, clumpifyResult);
+
+            // Add a field to indicate this is paired-end data
+            DocumentField pairedEndField = DocumentField.createStringField("Read Type", "Read Type", "fastp_read_type");
+            annotatedDoc.setFieldValue(pairedEndField, "Paired-End");
 
             outputDocs.add(annotatedDoc);
 
-            String msg = "Imported sequence list with " + sequences.size() + " sequences from " + fastqFile.getName();
+            String msg = "Imported paired-end sequence list with " + maxCount + " read pairs (" +
+                        allSequences.size() + " total sequences)";
             System.out.println("SUCCESS: " + msg);
             logger.info(msg);
+
+        } else {
+            // Single-end import (original logic)
+            System.out.println("Processing single-end files...");
+
+            for (int i = 0; i < fastqFiles.size(); i++) {
+                File fastqFile = fastqFiles.get(i);
+                AnnotatedPluginDocument originalDoc = originalDocs.get(i);
+
+                System.out.println("  Processing file: " + fastqFile.getAbsolutePath());
+                System.out.println("  File size: " + fastqFile.length() + " bytes");
+
+                if (!fastqFile.exists() || fastqFile.length() == 0) {
+                    String msg = "Output FASTQ file is missing or empty: " + fastqFile.getName();
+                    System.err.println("WARNING: " + msg);
+                    logger.warning(msg);
+                    continue;
+                }
+
+                // Parse FASTQ file
+                System.out.println("  Parsing FASTQ file...");
+                List<NucleotideGraphSequenceDocument> sequences = parseFastqFileOptimized(fastqFile);
+                System.out.println("  Parsed " + sequences.size() + " sequences");
+
+                if (sequences.isEmpty()) {
+                    String msg = "No sequences found in output file: " + fastqFile.getName();
+                    System.err.println("WARNING: " + msg);
+                    logger.warning(msg);
+                    continue;
+                }
+
+                // Create sequence list document
+                System.out.println("  Creating sequence list document...");
+                List<NucleotideSequenceDocument> nucSeqs = new ArrayList<>(sequences);
+                DefaultSequenceListDocument sequenceList =
+                    DefaultSequenceListDocument.forNucleotideSequences(nucSeqs);
+
+                String listName = originalDoc.getName() + " (fastp filtered)";
+                sequenceList.setName(listName);
+                System.out.println("  Created sequence list: " + listName);
+
+                // Wrap in AnnotatedPluginDocument
+                AnnotatedPluginDocument annotatedDoc = DocumentUtilities.createAnnotatedPluginDocument(sequenceList);
+
+                // Add metadata
+                System.out.println("  Adding metadata...");
+                addMetadata(annotatedDoc, originalDoc, statistics, isLongRead, executionResult, clumpifyResult);
+
+                // Add a field to indicate this is single-end data
+                DocumentField readTypeField = DocumentField.createStringField("Read Type", "Read Type", "fastp_read_type");
+                annotatedDoc.setFieldValue(readTypeField, "Single-End");
+
+                outputDocs.add(annotatedDoc);
+
+                String msg = "Imported sequence list with " + sequences.size() + " sequences from " + fastqFile.getName();
+                System.out.println("SUCCESS: " + msg);
+                logger.info(msg);
+            }
         }
 
+        System.out.println("=== Import Complete - Total documents: " + outputDocs.size() + " ===");
         return outputDocs;
     }
 
     /**
-     * Parses a FASTQ file and returns sequence documents.
+     * Parses a FASTQ file and returns sequence documents with quality scores.
+     * OPTIMIZED version with pre-allocated collections and quality score storage.
+     *
+     * FIXED: Quality scores are now properly stored using DefaultNucleotideGraphSequence,
+     * which supports quality score graphs in the Geneious interface.
      *
      * @param fastqFile FASTQ file to parse
-     * @return list of sequence documents
+     * @return list of sequence documents with quality scores
      */
-    private List<NucleotideSequenceDocument> parseFastqFile(File fastqFile) throws IOException {
-        List<NucleotideSequenceDocument> sequences = new ArrayList<>();
+    private List<NucleotideGraphSequenceDocument> parseFastqFileOptimized(File fastqFile) throws IOException {
+        // OPTIMIZATION: Estimate sequence count from file size (avg 4 lines per seq, ~100 bytes per line)
+        long estimatedSeqs = fastqFile.length() / 400;
+        int initialCapacity = (int) Math.min(estimatedSeqs, 100000); // Cap at 100k to avoid huge arrays
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(fastqFile))) {
+        List<NucleotideGraphSequenceDocument> sequences = new ArrayList<>(initialCapacity);
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(fastqFile), 65536)) { // 64KB buffer
             String line;
+            int parsedCount = 0;
+
             while ((line = reader.readLine()) != null) {
                 // FASTQ format: @name, sequence, +, quality
                 if (line.startsWith("@")) {
@@ -800,29 +1106,65 @@ public class FastpOperation extends DocumentOperation {
                         continue;
                     }
 
-                    // Convert quality string to byte array (Phred+33)
-                    byte[] qualityScores = new byte[quality.length()];
+                    // Parse FASTQ quality scores (Phred+33 encoding) into int array
+                    int[] qualityScores = new int[quality.length()];
                     for (int i = 0; i < quality.length(); i++) {
-                        qualityScores[i] = (byte) (quality.charAt(i) - 33);
+                        qualityScores[i] = quality.charAt(i) - 33;
                     }
 
-                    // Create sequence document
-                    DefaultNucleotideSequence seqDoc = new DefaultNucleotideSequence(
+                    // Log quality score information for first few sequences
+                    if (parsedCount < 3) {
+                        int avgQuality = 0;
+                        for (int score : qualityScores) {
+                            avgQuality += score;
+                        }
+                        avgQuality /= qualityScores.length;
+                        System.out.println("  Sample sequence '" + name + "': length=" + sequence.length() +
+                                         ", avg quality=" + avgQuality);
+                    }
+
+                    // Create NucleotideGraph from quality scores
+                    // Using DefaultNucleotideGraph.createNucleotideGraph(int[] qualities, int leadingGaps, int trailingGaps)
+                    NucleotideGraph qualityGraph = DefaultNucleotideGraph.createNucleotideGraph(
+                        qualityScores,
+                        0,  // no leading gaps
+                        0   // no trailing gaps
+                    );
+
+                    // Create sequence document WITH quality scores
+                    // Using DefaultNucleotideGraphSequence to properly store quality information
+                    DefaultNucleotideGraphSequence seqDoc = new DefaultNucleotideGraphSequence(
                         name,
                         "",  // description
                         sequence,
-                        new Date()
+                        new Date(),
+                        qualityGraph
                     );
-
-                    // Set quality scores
-                    // seqDoc.setQuality(qualityScores);
-
                     sequences.add(seqDoc);
+
+                    parsedCount++;
+                    // Log progress for large files
+                    if (parsedCount % 10000 == 0) {
+                        System.out.println("  ... parsed " + parsedCount + " sequences");
+                    }
                 }
             }
         }
 
+        System.out.println("Parsing complete: " + sequences.size() + " sequences loaded with quality scores stored");
         return sequences;
+    }
+
+    /**
+     * Parses a FASTQ file and returns sequence documents.
+     * Legacy method kept for compatibility.
+     *
+     * @param fastqFile FASTQ file to parse
+     * @return list of sequence documents
+     */
+    private List<NucleotideGraphSequenceDocument> parseFastqFile(File fastqFile) throws IOException {
+        // Delegate to optimized version
+        return parseFastqFileOptimized(fastqFile);
     }
 
     /**
@@ -833,17 +1175,39 @@ public class FastpOperation extends DocumentOperation {
      * @param statistics statistics from fastp
      * @param isLongRead whether this is long-read data
      * @param executionResult the execution result containing command and outputs
+     * @param clumpifyResult the clumpify execution result (may be null)
      */
     private void addMetadata(
             AnnotatedPluginDocument outputDoc,
             AnnotatedPluginDocument originalDoc,
             Map<String, Object> statistics,
             boolean isLongRead,
-            FastpExecutionResult executionResult) {
+            FastpExecutionResult executionResult,
+            FastpExecutionResult clumpifyResult) {
+
+        // FIX 4: Add debugging logs to verify executionResult is not null
+        System.out.println("=== Adding Metadata to Document ===");
+        if (executionResult == null) {
+            System.err.println("ERROR: executionResult is NULL - metadata will be incomplete!");
+            logger.severe("executionResult is null when adding metadata");
+        } else {
+            System.out.println("executionResult is valid:");
+            System.out.println("  Command: " + executionResult.getCommand());
+            System.out.println("  Exit Code: " + executionResult.getExitCode());
+        }
+
+        if (clumpifyResult != null) {
+            System.out.println("clumpifyResult is valid:");
+            System.out.println("  Command: " + clumpifyResult.getCommand());
+            System.out.println("  Exit Code: " + clumpifyResult.getExitCode());
+        }
 
         // Set description via document notes
         String description = "Processed with " + (isLongRead ? "fastplong" : "fastp") +
                            " - Quality filtered and adapter trimmed";
+        if (clumpifyResult != null) {
+            description += " (clumpified for better compression)";
+        }
 
         // Try to set notes if the API supports it
         try {
@@ -903,6 +1267,8 @@ public class FastpOperation extends DocumentOperation {
                 double dupRate = (Double) statistics.get("duplication_rate");
                 outputDoc.setFieldValue(dupRateField, DECIMAL_FORMAT.format(dupRate * 100) + "%");
             }
+
+            System.out.println("Added " + statistics.size() + " statistical metadata fields");
         }
 
         // Add reference fields
@@ -914,7 +1280,7 @@ public class FastpOperation extends DocumentOperation {
         outputDoc.setFieldValue(procDateField, new Date().toString());
         outputDoc.setFieldValue(toolUsedField, isLongRead ? "fastplong" : "fastp");
 
-        // Add execution details (command and outputs)
+        // FIX 4: Add execution details (command and outputs) - verify not null
         if (executionResult != null) {
             DocumentField commandField = DocumentField.createStringField("Fastp Command", "Command Line Executed", "fastp_command");
             DocumentField stdoutField = DocumentField.createStringField("Fastp Stdout", "Standard Output", "fastp_stdout");
@@ -926,12 +1292,29 @@ public class FastpOperation extends DocumentOperation {
             outputDoc.setFieldValue(stderrField, executionResult.getStderr());
             outputDoc.setFieldValue(exitCodeField, String.valueOf(executionResult.getExitCode()));
 
-            System.out.println("Added execution metadata:");
-            System.out.println("  Command: " + executionResult.getCommand());
+            System.out.println("Added fastp execution metadata:");
+            System.out.println("  Command: " + executionResult.getCommand().substring(0, Math.min(100, executionResult.getCommand().length())) + "...");
             System.out.println("  Exit Code: " + executionResult.getExitCode());
             System.out.println("  Stdout length: " + executionResult.getStdout().length() + " characters");
             System.out.println("  Stderr length: " + executionResult.getStderr().length() + " characters");
+        } else {
+            System.err.println("WARNING: Could not add fastp execution metadata - executionResult is null");
         }
+
+        // Add clumpify metadata if available
+        if (clumpifyResult != null) {
+            DocumentField clumpifyCommandField = DocumentField.createStringField("Clumpify Command", "Clumpify Command Line", "clumpify_command");
+            DocumentField clumpifyExitCodeField = DocumentField.createStringField("Clumpify Exit Code", "Clumpify Exit Code", "clumpify_exit_code");
+
+            outputDoc.setFieldValue(clumpifyCommandField, clumpifyResult.getCommand());
+            outputDoc.setFieldValue(clumpifyExitCodeField, String.valueOf(clumpifyResult.getExitCode()));
+
+            System.out.println("Added clumpify execution metadata:");
+            System.out.println("  Command: " + clumpifyResult.getCommand());
+            System.out.println("  Exit Code: " + clumpifyResult.getExitCode());
+        }
+
+        System.out.println("=== Metadata Addition Complete ===");
     }
 
     /**
