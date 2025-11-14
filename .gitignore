@@ -1,0 +1,40 @@
+# Build directories
+build/
+classes/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Compiled class files
+*.class
+
+# Log files
+*.log
+
+# Package files
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Keep the .gplugin file for distribution
+!build/*.gplugin
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Test data (if added later)
+test-data/output/

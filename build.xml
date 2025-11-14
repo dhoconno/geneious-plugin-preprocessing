@@ -1,0 +1,66 @@
+<?xml version="1.0" ?>
+
+<project name="FastpPlugin" default="distribute" basedir=".">
+
+    <property file="plugin.properties"/>
+    <property name="build" location="build"/>
+    <property name="classes" location="classes"/>
+    <property name="src" location="src"/>
+    <property name="resources" location="src/main/resources"/>
+    <property name="devkit" location="/Users/dho/Downloads/geneious-2025.2.2-devkit"/>
+
+    <!-- Define classpath to include all required Geneious API JARs -->
+    <path id="classpath">
+        <fileset dir="${devkit}/examples/GeneiousFiles/lib">
+            <include name="GeneiousPublicAPI.jar"/>
+            <include name="jdom.jar"/>
+            <include name="jebl.jar"/>
+            <include name="commons-io-*.jar"/>
+            <include name="commons-lang3-*.jar"/>
+        </fileset>
+    </path>
+
+    <!-- Main distribution target - creates the .gplugin file -->
+    <target name="distribute" depends="build">
+        <copy file="${build}/${short-plugin-name}.jar" tofile="${build}/${short-plugin-name}.gplugin"/>
+        <echo message="Created ${build}/${short-plugin-name}.gplugin"/>
+        <echo message="Install this plugin in Geneious by copying it to the Geneious plugins directory"/>
+    </target>
+
+    <!-- Build target - creates the JAR file with compiled classes, resources, and plugin.properties -->
+    <target name="build" depends="compile">
+        <jar jarfile="${build}/${short-plugin-name}.jar">
+            <fileset dir="${classes}"/>
+            <fileset dir="${resources}"/>
+            <fileset dir="">
+                <include name="plugin.properties"/>
+            </fileset>
+        </jar>
+    </target>
+
+    <!-- Compile Java sources targeting Java 11 (Geneious requirement) -->
+    <target name="compile" depends="prepare">
+        <javac target="11" source="11" destdir="${classes}" debug="true" includeantruntime="false">
+            <classpath refid="classpath"/>
+            <src path="${src}"/>
+        </javac>
+    </target>
+
+    <!-- Prepare build directories -->
+    <target name="prepare">
+        <mkdir dir="${build}"/>
+        <mkdir dir="${classes}"/>
+    </target>
+
+    <!-- Clean build artifacts -->
+    <target name="clean">
+        <delete dir="${build}"/>
+        <delete dir="${classes}"/>
+    </target>
+
+    <!-- Test target - useful for running quick checks -->
+    <target name="test" depends="compile">
+        <echo message="Compilation successful. Plugin classes are ready."/>
+    </target>
+
+</project>
