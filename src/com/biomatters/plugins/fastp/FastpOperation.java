@@ -378,13 +378,13 @@ public class FastpOperation extends DocumentOperation {
                 outputFiles.add(outputFile);
             }
 
-            // Execute fastp/fastplong
+            // Execute fastp/fastplong and capture result
             progressListener.setMessage("Running " + (useFastplong ? "fastplong" : "fastp") + "...");
             FastpExecutor executor = new FastpExecutor();
-            int exitCode;
+            FastpExecutionResult result;
 
             if (isPairedEnd) {
-                exitCode = executor.executePairedEnd(
+                result = executor.executePairedEnd(
                     binaryPath,
                     inputFiles.get(0), inputFiles.get(1),
                     outputFiles.get(0), outputFiles.get(1),
@@ -392,7 +392,7 @@ public class FastpOperation extends DocumentOperation {
                     options, progressListener
                 );
             } else {
-                exitCode = executor.executeSingleEnd(
+                result = executor.executeSingleEnd(
                     binaryPath,
                     inputFiles.get(0),
                     outputFiles.get(0),
@@ -401,8 +401,23 @@ public class FastpOperation extends DocumentOperation {
                 );
             }
 
-            if (exitCode != 0) {
-                throw new DocumentOperationException("Fastp execution failed with exit code: " + exitCode);
+            // Log execution details
+            System.out.println("\n=== Fastp Execution Completed ===");
+            System.out.println("Command: " + result.getCommand());
+            System.out.println("Exit Code: " + result.getExitCode());
+            System.out.println("Stdout length: " + result.getStdout().length() + " bytes");
+            System.out.println("Stderr length: " + result.getStderr().length() + " bytes");
+
+            logger.info("Fastp execution completed with exit code: " + result.getExitCode());
+            logger.info("Command executed: " + result.getCommand());
+
+            // Check for errors
+            if (result.getExitCode() != 0) {
+                String errorMessage = "Fastp execution failed with exit code: " + result.getExitCode();
+                if (!result.getStderr().isEmpty()) {
+                    errorMessage += "\nError output:\n" + result.getStderr();
+                }
+                throw new DocumentOperationException(errorMessage);
             }
 
             // Parse JSON report
@@ -412,7 +427,7 @@ public class FastpOperation extends DocumentOperation {
             // Import processed sequences
             progressListener.setMessage("Importing processed sequences...");
             List<AnnotatedPluginDocument> outputDocuments = importProcessedSequences(
-                outputFiles, documents, statistics, useFastplong
+                outputFiles, documents, statistics, useFastplong, result
             );
 
             // Import HTML report as a document
@@ -693,13 +708,15 @@ public class FastpOperation extends DocumentOperation {
      * @param originalDocs original input documents
      * @param statistics statistics from JSON report
      * @param isLongRead whether this is long-read data
+     * @param executionResult the execution result containing command and outputs
      * @return list of imported documents
      */
     private List<AnnotatedPluginDocument> importProcessedSequences(
             List<File> fastqFiles,
             List<AnnotatedPluginDocument> originalDocs,
             Map<String, Object> statistics,
-            boolean isLongRead) throws IOException, DocumentOperationException {
+            boolean isLongRead,
+            FastpExecutionResult executionResult) throws IOException, DocumentOperationException {
 
         System.out.println("=== Importing Processed Sequences ===");
         logger.info("Importing processed sequences from " + fastqFiles.size() + " FASTQ file(s)");
@@ -747,7 +764,7 @@ public class FastpOperation extends DocumentOperation {
 
             // Add metadata
             System.out.println("Adding metadata to sequence list...");
-            addMetadata(annotatedDoc, originalDoc, statistics, isLongRead);
+            addMetadata(annotatedDoc, originalDoc, statistics, isLongRead, executionResult);
 
             outputDocs.add(annotatedDoc);
 
@@ -815,12 +832,14 @@ public class FastpOperation extends DocumentOperation {
      * @param originalDoc original input document
      * @param statistics statistics from fastp
      * @param isLongRead whether this is long-read data
+     * @param executionResult the execution result containing command and outputs
      */
     private void addMetadata(
             AnnotatedPluginDocument outputDoc,
             AnnotatedPluginDocument originalDoc,
             Map<String, Object> statistics,
-            boolean isLongRead) {
+            boolean isLongRead,
+            FastpExecutionResult executionResult) {
 
         // Set description via document notes
         String description = "Processed with " + (isLongRead ? "fastplong" : "fastp") +
@@ -894,6 +913,25 @@ public class FastpOperation extends DocumentOperation {
         outputDoc.setFieldValue(origDocField, originalDoc.getName());
         outputDoc.setFieldValue(procDateField, new Date().toString());
         outputDoc.setFieldValue(toolUsedField, isLongRead ? "fastplong" : "fastp");
+
+        // Add execution details (command and outputs)
+        if (executionResult != null) {
+            DocumentField commandField = DocumentField.createStringField("Fastp Command", "Command Line Executed", "fastp_command");
+            DocumentField stdoutField = DocumentField.createStringField("Fastp Stdout", "Standard Output", "fastp_stdout");
+            DocumentField stderrField = DocumentField.createStringField("Fastp Stderr", "Standard Error", "fastp_stderr");
+            DocumentField exitCodeField = DocumentField.createStringField("Exit Code", "Process Exit Code", "fastp_exit_code");
+
+            outputDoc.setFieldValue(commandField, executionResult.getCommand());
+            outputDoc.setFieldValue(stdoutField, executionResult.getStdout());
+            outputDoc.setFieldValue(stderrField, executionResult.getStderr());
+            outputDoc.setFieldValue(exitCodeField, String.valueOf(executionResult.getExitCode()));
+
+            System.out.println("Added execution metadata:");
+            System.out.println("  Command: " + executionResult.getCommand());
+            System.out.println("  Exit Code: " + executionResult.getExitCode());
+            System.out.println("  Stdout length: " + executionResult.getStdout().length() + " characters");
+            System.out.println("  Stderr length: " + executionResult.getStderr().length() + " characters");
+        }
     }
 
     /**

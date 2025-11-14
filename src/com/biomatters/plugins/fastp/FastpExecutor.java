@@ -69,10 +69,10 @@ public class FastpExecutor {
      * @param htmlReport output HTML report file
      * @param options fastp options
      * @param progressListener progress listener for updates
-     * @return exit code of fastp process
+     * @return FastpExecutionResult containing command, exit code, stdout, and stderr
      * @throws DocumentOperationException if execution fails
      */
-    public int executeSingleEnd(
+    public FastpExecutionResult executeSingleEnd(
             String binaryPath,
             File inputFile,
             File outputFile,
@@ -100,10 +100,10 @@ public class FastpExecutor {
      * @param htmlReport output HTML report file
      * @param options fastp options
      * @param progressListener progress listener for updates
-     * @return exit code of fastp process
+     * @return FastpExecutionResult containing command, exit code, stdout, and stderr
      * @throws DocumentOperationException if execution fails
      */
-    public int executePairedEnd(
+    public FastpExecutionResult executePairedEnd(
             String binaryPath,
             File inputR1,
             File inputR2,
@@ -405,23 +405,34 @@ public class FastpExecutor {
      * Executes a command and captures output.
      *
      * This method:
+     * - Builds the full command string for logging
      * - Starts the process
      * - Captures stdout/stderr in separate threads
      * - Updates progress listener based on output parsing
      * - Handles cancellation
      * - Waits for completion
-     * - Returns exit code
+     * - Returns FastpExecutionResult with command, exit code, stdout, and stderr
      *
      * @param command command to execute
      * @param progressListener progress listener
-     * @return exit code
+     * @return FastpExecutionResult containing execution details
      * @throws DocumentOperationException if execution fails
      */
-    private int executeCommand(List<String> command, ProgressListener progressListener)
+    private FastpExecutionResult executeCommand(List<String> command, ProgressListener progressListener)
             throws DocumentOperationException {
 
+        // Build the full command string for logging and result
+        String commandString = String.join(" ", command);
+
         try {
-            logger.info("Executing command: " + String.join(" ", command));
+            // Console logging of the command before execution
+            System.out.println("=============================================================");
+            System.out.println("Executing Fastp Command:");
+            System.out.println("=============================================================");
+            System.out.println(commandString);
+            System.out.println("=============================================================");
+
+            logger.info("Executing command: " + commandString);
 
             // Build and start process
             ProcessBuilder pb = new ProcessBuilder(command);
@@ -518,7 +529,7 @@ public class FastpExecutor {
 
             logger.info("Process completed with exit code: " + exitCode);
 
-            // Log captured output
+            // Get captured output as strings
             String stdout = stdoutCapture.toString();
             String stderr = stderrCapture.toString();
 
@@ -529,6 +540,9 @@ public class FastpExecutor {
                 logger.info("Process stderr:\n" + stderr);
             }
 
+            // Create the execution result
+            FastpExecutionResult result = new FastpExecutionResult(commandString, exitCode, stdout, stderr);
+
             // Check for errors
             if (exitCode != 0) {
                 String errorMessage = "Fastp execution failed with exit code: " + exitCode;
@@ -538,7 +552,7 @@ public class FastpExecutor {
                 throw new DocumentOperationException(errorMessage);
             }
 
-            return exitCode;
+            return result;
 
         } catch (IOException e) {
             throw new DocumentOperationException("Failed to execute fastp: " + e.getMessage(), e);
